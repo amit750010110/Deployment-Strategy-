@@ -1,0 +1,658 @@
+# CA SaaS — Master Build Prompt
+# Paste this entire prompt into a new Claude chat to start building
+
+---
+
+## MASTER CONTEXT (Read this first — never forget this)
+
+You are my dedicated software architect and senior developer. We are building **CAMind** — an AI-powered SaaS platform for Indian Chartered Accountants (CAs). This is a production-grade product, not a tutorial project.
+
+**Tech Stack (never deviate from this):**
+- Backend: Java 21 + Spring Boot 3.2 + Spring Security + Spring Data JPA
+- Database: PostgreSQL 16 (multi-tenant with tenant_id on every table)
+- Frontend: React 18 + Vite + Tailwind CSS + React Query + Axios
+- AI: OpenAI GPT-4o Vision API (for invoice extraction)
+- File Storage: AWS S3 (via spring-cloud-aws)
+- Payments: Razorpay (subscriptions)
+- Deployment: Railway.app (MVP), then AWS
+- Auth: JWT (jjwt library) + Spring Security
+
+**Core Architecture Rules (follow always):**
+1. Every database table MUST have `tenant_id UUID NOT NULL` column
+2. Hibernate @Filter must auto-append `WHERE tenant_id = :tenantId` on every query — CA A can NEVER see CA B's data
+3. All file uploads go to S3 with AES-256 encryption
+4. All AI extraction calls are @Async — never block the HTTP thread
+5. API responses always follow this format:
+```json
+{
+  "success": true,
+  "data": {},
+  "message": "string",
+  "timestamp": "ISO-8601"
+}
+```
+6. All endpoints are versioned: `/api/v1/...`
+7. Frontend uses React Query for all data fetching — no raw useEffect for API calls
+8. Tailwind only for styling — no inline styles, no CSS modules
+9. Every feature must be TESTED before we move to the next one
+
+**What we are building:**
+An end-to-end CA firm management platform with:
+- AI invoice extraction (photo/PDF → structured data)
+- Compliance calendar (GST, TDS, ITR, ROC deadlines)
+- Client management + client portal
+- Tally XML + GSTR JSON exports
+- GSTR-2A reconciliation
+- WhatsApp document receiving
+- Staff/team management
+- Billing (Razorpay subscriptions)
+- AI assistant (Claude/GPT on CA's own data)
+- And 90+ more features we will build incrementally
+
+---
+
+## HOW WE WILL WORK TOGETHER
+
+**Your job every session:**
+1. Give me COMPLETE, RUNNABLE code — never truncate, never say "rest of the code remains same"
+2. After each feature, give me an EXACT TEST CHECKLIST I must verify before saying "done"
+3. Tell me exactly what to run in terminal
+4. Tell me exactly what to check in browser/Postman
+5. Only move to next feature after I confirm tests pass
+6. If there's a decision to make (library choice, design pattern), you decide and tell me WHY
+
+**My job:**
+- Run the code you give
+- Test exactly what you say to test
+- Report back what happened
+- Say "NEXT" when ready to proceed
+
+**Session structure you must follow:**
+```
+FEATURE [N]: [Feature Name]
+├── What we're building (2-3 lines)
+├── Files to create/modify (exact paths)
+├── Complete code for each file
+├── Terminal commands to run
+└── TEST CHECKLIST (must pass before NEXT)
+```
+
+---
+
+## COMPLETE FEATURE LIST & BUILD ORDER
+
+Build in EXACTLY this order. Never skip. Never reorder.
+
+### PHASE 1 — FOUNDATION (Week 1-2)
+
+**FEATURE 1: Project Setup + Folder Structure**
+- Spring Boot project init (Spring Initializr)
+- React + Vite + Tailwind setup
+- Docker Compose for local PostgreSQL
+- Environment variables structure (.env files)
+- Project folder structure (exact package names)
+- Test: Both servers start without errors
+
+**FEATURE 2: Database Schema + Multi-Tenant Foundation**
+- PostgreSQL schema with ALL tables upfront
+- tenant_id on every table
+- Hibernate multi-tenant config (@Filter setup)
+- TenantContext (ThreadLocal)
+- TenantInterceptor (extract from JWT and set context)
+- Flyway migrations for all tables
+- Test: DB connects, migrations run, tenant isolation verified
+
+**FEATURE 3: Auth — CA Signup + JWT Login**
+- CA signup endpoint (name, email, password, firm name, GSTIN)
+- Password hashing (BCrypt)
+- JWT token generation + validation
+- Spring Security filter chain
+- Refresh token mechanism
+- Frontend: Signup page + Login page (Tailwind styled)
+- Frontend: JWT stored in httpOnly cookie (not localStorage)
+- Frontend: Protected route wrapper component
+- Test: Signup → Login → Access protected route → Logout
+
+**FEATURE 4: 2-Factor Authentication (TOTP)**
+- Google Authenticator compatible TOTP (use java-otp library)
+- Enable/disable 2FA endpoint
+- QR code generation for setup
+- Frontend: 2FA setup page + verification screen
+- Test: Setup 2FA → Scan QR → Enter code → Login with 2FA
+
+**FEATURE 5: Role-Based Access Control (RBAC)**
+- Roles: CA_ADMIN, CA_STAFF, CA_VIEWER
+- @PreAuthorize annotations on all endpoints
+- RoleEntity + UserRoleEntity tables
+- Frontend: Role shown in navbar, menu items conditional
+- Test: Staff cannot access admin routes, viewer cannot POST
+
+### PHASE 2 — CORE AI ENGINE (Week 2-4)
+
+**FEATURE 6: AWS S3 File Upload**
+- S3 bucket config (spring-cloud-aws-s3)
+- File upload service (multipart)
+- AES-256 server-side encryption via S3
+- Presigned URLs for secure file access
+- File size validation (max 10MB)
+- Accepted types: JPG, PNG, PDF
+- Test: Upload file → S3 console shows encrypted file → Presigned URL works
+
+**FEATURE 7: Invoice AI Extraction — Core Pipeline**
+- InvoiceEntity (all fields: vendorName, gstin, invoiceDate, taxableAmount, cgst, sgst, igst, totalAmount, status, s3Key, tenantId)
+- Invoice upload endpoint (POST /api/v1/invoices/upload)
+- @Async extraction service (calls GPT-4o Vision)
+- GPT-4o prompt (extract: vendor_name, gstin, invoice_number, invoice_date, taxable_amount, cgst_amount, sgst_amount, igst_amount, total_amount, currency)
+- Status flow: UPLOADED → PROCESSING → EXTRACTED → APPROVED → REJECTED
+- Error handling: FAILED status with error message
+- Test: Upload invoice photo → Poll status → See extracted data
+
+**FEATURE 8: Invoice Review + Edit + Approve UI**
+- Frontend: Invoice list page with status badges
+- React Query polling (every 3 seconds for PROCESSING invoices)
+- Invoice detail modal — all extracted fields editable
+- Approve button (PATCH /api/v1/invoices/{id}/approve)
+- Reject button with reason
+- Inline field editing with validation
+- Toast notifications (success/error)
+- Test: Upload → See PROCESSING → Auto-refresh to EXTRACTED → Edit field → Approve → Status changes
+
+**FEATURE 9: GSTIN Validation**
+- GSTIN format regex validator (15 char pattern)
+- Validate on extraction + on manual entry
+- State code from first 2 digits (display state name)
+- Frontend: GSTIN field shows green check or red X
+- Test: Valid GSTIN → green. Invalid → red with error message.
+
+**FEATURE 10: Bulk Upload (50 files)**
+- Multipart bulk upload endpoint
+- Queue-based async processing (CompletableFuture.allOf)
+- Frontend: Drag-and-drop zone (react-dropzone)
+- Individual progress per file
+- Batch summary when all done
+- Test: Upload 5 files → See all processing → All extracted
+
+### PHASE 3 — EXPORTS (Week 4-5)
+
+**FEATURE 11: Tally XML Export**
+- Map InvoiceEntity → TallyPrime XML voucher format
+- Support: Purchase Voucher, Sales Voucher
+- Batch export (selected invoices or all approved)
+- File download endpoint
+- Frontend: Select invoices → Export Tally XML button → Download
+- Test: Export XML → Import into TallyPrime → Verify vouchers created correctly
+
+**FEATURE 12: Excel/CSV Export**
+- Apache POI for Excel (.xlsx)
+- Formatted headers, styled cells, auto-width columns
+- CSV export (simple alternative)
+- Date range filter before export
+- Test: Export → Open Excel → All fields present, formatted correctly
+
+**FEATURE 13: GSTR-1 JSON Export**
+- GSTN official GSTR-1 JSON specification
+- B2B invoices section (inter-state)
+- B2CS invoices section (intra-state small)
+- CGST/SGST/IGST auto-categorisation
+- Validation before export (flag incomplete invoices)
+- Test: Export JSON → Upload to GST portal sandbox → No errors
+
+**FEATURE 14: Branded PDF Report**
+- iText/OpenPDF library
+- CA firm logo + name + address header
+- GST summary table per client
+- Invoice list with amounts
+- Total tax summary footer
+- Test: Generate PDF → Open → Logo shows, all data correct, professionally formatted
+
+### PHASE 4 — CLIENT MANAGEMENT (Week 5-6)
+
+**FEATURE 15: Client Master Database**
+- ClientEntity (name, gstin, pan, email, phone, entityType, assignedStaffId, tenantId)
+- CRUD endpoints for clients
+- Frontend: Client list page (searchable, filterable)
+- Frontend: Add/Edit client form
+- Frontend: Client detail page
+- Test: Add client → Edit → Search → Delete → Verify tenant isolation
+
+**FEATURE 16: Razorpay Subscription Billing**
+- Razorpay Java SDK setup
+- Plans: Starter (₹999), Growth (₹2999), Enterprise (₹4999)
+- Subscription creation endpoint
+- Webhook handler (payment.captured, subscription.activated, payment.failed)
+- Account lock after payment failure
+- Trial period: 14 days (no card required)
+- Frontend: Pricing page (3 cards, most popular badge on Growth)
+- Frontend: Payment flow (Razorpay checkout popup)
+- Frontend: Subscription status in settings
+- Test: Trial → Pay → Account active → Cancel → Account locked after period
+
+**FEATURE 17: Compliance Calendar**
+- ComplianceDeadlineEntity (clientId, deadlineType, dueDate, status, tenantId)
+- Deadline types: GSTR1, GSTR3B, TDS_24Q, TDS_26Q, ITR, ROC_AOC4, ROC_MGT7, ADVANCE_TAX
+- Auto-generate deadlines when client is added
+- Cron job: Daily check for upcoming deadlines
+- Alert logic: 7 days before → CA email, 3 days before → CA + client email, day of → CA WhatsApp
+- Frontend: Calendar view (react-big-calendar)
+- Frontend: List view with filters (overdue, today, this week)
+- Test: Add client → Deadlines auto-created → Advance date → Alert fires
+
+**FEATURE 18: Invoice → Client Linking**
+- invoiceId → clientId FK
+- Assign invoice to client on upload or after extraction
+- Client invoice history page
+- Per-client invoice summary (total invoices, total GST, pending approvals)
+- Test: Upload invoice → Assign to client → See in client history
+
+---
+
+### PHASE 5 — COMPLIANCE ENGINE (Month 2-3)
+
+**FEATURE 19: GSTR-2A Reconciliation**
+- GSTR-2A CSV/JSON parser (GSTN portal format)
+- Matching algorithm: GSTIN + amount (within 1%) + date (within 3 days) = MATCH
+- Reconciliation result: MATCHED, MISMATCH, MISSING_IN_PORTAL, MISSING_IN_BOOKS
+- Frontend: Upload GSTR-2A file → See diff table (color coded)
+- Export reconciliation report (Excel)
+- Test: Upload GSTR-2A with some mismatches → App correctly identifies all discrepancies
+
+**FEATURE 20: Form 26AS TDS Matching**
+- 26AS text file parser (Income Tax portal format)
+- Match TDS entries with vendor payment invoices
+- Flag: TDS deducted but not in books
+- Flag: In books but not in 26AS
+- Frontend: 26AS upload → matching results → export report
+- Test: Upload 26AS → Verify matching logic
+
+**FEATURE 21: ITC Utilisation Tracker**
+- Per-client ITC available (from approved purchase invoices)
+- ITC utilised (from GSTR-3B data)
+- ITC balance
+- Frontend: Dashboard widget per client — progress bar showing utilisation %
+- Alert: ITC expiring (time limit rules)
+- Test: Enter invoices → ITC calculated → Verify maths
+
+**FEATURE 22: CGST/SGST/IGST Auto-Categorisation**
+- State code from buyer GSTIN vs seller GSTIN
+- Same state → CGST + SGST
+- Different state → IGST
+- Override option for special cases
+- Frontend: Auto-filled tax fields, editable
+- Test: Inter-state invoice → IGST auto-set. Intra-state → CGST+SGST auto-set.
+
+**FEATURE 23: UDIN Auto-Generation**
+- ICAI UDIN portal API integration
+- Generate UDIN per signed document
+- Link UDIN to document in system
+- UDIN tracker (all UDINs per CA)
+- Alert: UDIN expiry
+- Test: Generate UDIN → See in tracker → Link to document
+
+**FEATURE 24: Tax Saving Opportunity Engine**
+- Rule engine: Scan all approved invoices per client
+- Rule 1: Unclaimed ITC (invoice approved but ITC not filed)
+- Rule 2: Possible RCM applicability (check vendor category)
+- Rule 3: Wrong GST rate (compare with HSN/SAC master database)
+- Rule 4: Missing invoices vs GSTR-2A (cross reference)
+- Frontend: Per-client "opportunities" section with ₹ amount saved
+- Test: Create test scenarios for each rule → Verify detection
+
+**FEATURE 25: GST Notice Detector + Reply Drafter**
+- Upload GST notice (PDF/image)
+- GPT-4o extracts: notice type, demand amount, period, reason
+- Match with CA's invoice data for that period
+- Draft professional reply letter (GPT-4 with legal tone prompt)
+- Frontend: Notice upload → Analysis → Draft reply → Edit → Download PDF
+- Test: Upload sample GST notice → Verify correct type detected → Reply drafted
+
+---
+
+### PHASE 6 — WHATSAPP + CLIENT PORTAL (Month 2-3)
+
+**FEATURE 26: WhatsApp Document Receiving**
+- Twilio WhatsApp Business API webhook
+- Endpoint: POST /api/v1/webhooks/whatsapp
+- Phone number → CA mapping
+- Receive image/PDF → download media → upload to S3 → trigger extraction pipeline
+- Auto-reply: "Invoice received! Processing... ✓"
+- Auto-reply on blur/invalid: "Photo unclear, please resend in better lighting"
+- Frontend: WhatsApp number setup in CA settings
+- Test: Send invoice photo via WhatsApp → See in dashboard as PROCESSING
+
+**FEATURE 27: Client Portal (Client Login)**
+- Separate JWT flow for clients (clientToken)
+- Client can ONLY see their own data
+- Client portal pages: Upload documents, View filing status, Download reports
+- Document checklist: CA defines what's needed, client sees checklist
+- Frontend: Completely separate React route /client/* with different navbar
+- Test: CA creates client → Client logs in → Uploads doc → CA sees it
+
+**FEATURE 28: Unified Client Conversation Thread**
+- MessageEntity (senderId, senderType: CA/CLIENT, content, attachmentUrl, clientId, tenantId)
+- Real-time updates (SSE — Server-Sent Events, no need for WebSocket in MVP)
+- Frontend: Chat UI per client (like WhatsApp Web)
+- File attachments in messages
+- Test: CA sends message → Client sees it in portal → Client replies → CA sees it
+
+**FEATURE 29: E-Signature Collection**
+- Integration: DocuSign API or DigiLocker eSign
+- CA sends document for signature
+- Client receives email/portal notification
+- Client signs digitally
+- Signed document stored in S3
+- Test: Send doc → Client signs → Download signed PDF → Verify signature
+
+---
+
+### PHASE 7 — FIRM MANAGEMENT (Month 3-4)
+
+**FEATURE 30: Staff Management**
+- StaffEntity (name, email, role, tenantId)
+- Invite staff via email (invite token flow)
+- Assign clients to staff
+- Staff can only see assigned clients
+- Frontend: Staff list, invite form, client assignment
+- Test: Invite staff → Staff accepts → Staff sees only assigned clients
+
+**FEATURE 31: Articled Clerk Onboarding**
+- Clerk type role (CA_CLERK)
+- Onboarding checklist template (customisable)
+- Supervisor assignment
+- Clerk task assignments (simple tasks, not full work)
+- Training document library
+- Test: Add clerk → Checklist assigned → Supervisor can monitor progress
+
+**FEATURE 32: Work Allocation Dashboard**
+- Per-staff: total clients assigned, pending filings, overdue tasks
+- Capacity indicator (% workload)
+- Drag-and-drop client reassignment
+- Frontend: Kanban-style workload view
+- Test: Assign clients → See workload distribution → Reassign → Verify update
+
+**FEATURE 33: Time Tracking**
+- TimeEntryEntity (staffId, clientId, taskType, startTime, endTime, billable, notes, tenantId)
+- Start/stop timer (running timer persists on backend)
+- Manual time entry option
+- Frontend: Timer widget in navbar (always visible)
+- Frontend: Timesheet view (daily/weekly)
+- Test: Start timer → Stop → See entry → Verify calculation
+
+**FEATURE 34: Task Management**
+- TaskEntity (title, description, clientId, assignedTo, dueDate, status, priority, tenantId)
+- Status: TODO, IN_PROGRESS, REVIEW, DONE
+- Link tasks to compliance deadlines
+- Frontend: Kanban board + list view
+- Sub-tasks support
+- Test: Create task → Assign → Move through statuses → Mark complete
+
+**FEATURE 35: Invoice Generation for CA's Own Billing**
+- CA generates invoice for services rendered to client
+- Service items: GST Filing, ITR Filing, Audit, Advisory (customisable)
+- PDF invoice with CA firm details
+- Track payment status
+- Integration with Razorpay payment link (client pays online)
+- Test: Create invoice → Download PDF → Send payment link → Mark paid
+
+---
+
+### PHASE 8 — ADVANCED AI (Month 4-6)
+
+**FEATURE 36: CA Assistant Chatbot**
+- Claude API (claude-sonnet) as the AI brain
+- RAG setup: CA's invoice data + client data as context
+- System prompt: "You are a CA assistant. Answer only based on this firm's data. Be specific with numbers."
+- Conversation history (per-session)
+- Example queries it must handle:
+  - "March mein top 5 vendors kaunse the?"
+  - "Client X ka pending ITC kitna hai?"
+  - "Kaunse clients ki filing abhi bhi pending hai?"
+  - "Is quarter mein total GST outflow kitna tha?"
+- Frontend: Chat UI in sidebar (always accessible)
+- Test: Ask each example query → Verify correct data-backed answer
+
+**FEATURE 37: Vendor Intelligence Score**
+- Score per vendor (0-100)
+- Factors: GSTIN consistency (30%), invoice format consistency (20%), duplicate invoice history (25%), on-time delivery of invoices (25%)
+- Frontend: Vendor list with scores, color coded (red < 40, amber 40-70, green > 70)
+- Alert: Low score vendor used on new invoice
+- Test: Create vendor history → Verify score calculation
+
+**FEATURE 38: Deduplication Engine**
+- Weighted scoring: GSTIN exact match (40pts) + amount within 1% (35pts) + date within 3 days (25pts)
+- 80+ score = DUPLICATE (auto-flag)
+- 50-79 = POSSIBLE_DUPLICATE (manual review)
+- Frontend: Duplicate flag badge on invoice, side-by-side comparison view
+- Test: Upload same invoice twice → Flag appears → Comparison view works
+
+**FEATURE 39: Predictive Cashflow Forecast**
+- ML model: Linear regression on 12-month invoice history
+- Predict: Next month expected GST liability, expected ITC, net cash outflow
+- Confidence interval shown
+- Frontend: Line chart (Recharts) showing historical + predicted
+- Test: Enter 6+ months data → Forecast generated → Sanity check numbers
+
+**FEATURE 40: Anomaly Detection**
+- Rule-based + statistical anomaly detection
+- Anomaly types:
+  - Same GSTIN, different vendor name
+  - Amount 3x above vendor average
+  - Date is weekend/holiday (unusual)
+  - Duplicate GSTIN from blacklisted vendors
+  - Sequential invoice numbers missing
+- Frontend: Anomaly alerts panel, severity levels
+- Test: Create anomalous invoices → Verify each type detected
+
+---
+
+### PHASE 9 — PLATFORM FEATURES (Month 6+)
+
+**FEATURE 41: Public REST API**
+- API key management (generate, revoke, scope)
+- Rate limiting (per API key, per minute)
+- Usage dashboard (calls made, cost)
+- Billing: ₹2-5 per API call (track and bill monthly)
+- Full OpenAPI/Swagger documentation
+- Endpoints to expose: POST /api/v1/extract, GET /api/v1/invoices, POST /api/v1/reconcile
+- Test: Generate API key → Call from Postman → See in usage dashboard → Verify rate limiting
+
+**FEATURE 42: Vendor Pattern Memory**
+- After 10 invoices from same vendor: store extraction template
+- Template: field positions, format patterns, regex rules
+- New invoice from known vendor: use template (skip GPT-4o call)
+- Fallback to GPT-4o if template fails
+- Cost saving tracker (show CA how much AI cost saved)
+- Test: Upload 10 Reliance invoices → 11th uses pattern → Verify zero AI cost
+
+**FEATURE 43: GST Rate Master Database**
+- Complete HSN/SAC code database (CBIC official list)
+- Search by code or description
+- Suggested rate per HSN
+- Auto-suggest on invoice line item entry
+- Quarterly update mechanism
+- Test: Search HSN code → Correct rate shown → Rate pre-fills on invoice
+
+**FEATURE 44: ROC Compliance Tracker**
+- Companies Act deadlines per company client:
+  - AOC-4 (Financial statements) — 30 days from AGM
+  - MGT-7 (Annual return) — 60 days from AGM
+  - DIR-3 KYC — 30 September every year
+  - ADT-1 (Auditor appointment)
+- MCA portal link per filing
+- Status: PENDING, FILED, OVERDUE
+- Test: Add company client → ROC deadlines auto-created → Status updates
+
+**FEATURE 45: GSTR-3B Auto-Fill**
+- Calculate from approved invoices:
+  - Table 3.1: Outward supplies (sales invoices)
+  - Table 4: Eligible ITC (purchase invoices)
+  - Net tax payable
+- Export as JSON (GSTN format)
+- Summary view before export
+- Test: Enter sales + purchase invoices → GSTR-3B generated → Verify calculations
+
+**FEATURE 46: e-Invoice IRN Generation**
+- GSTN IRP portal API integration
+- Generate IRN for eligible invoices (₹5Cr+ turnover)
+- QR code generation
+- IRN validation for received invoices
+- Frontend: IRN status badge on invoice
+- Test: Generate IRN via sandbox API → QR code generated → Validate received IRN
+
+**FEATURE 47: Bank Statement Reconciliation**
+- Bank statement parser (CSV/Excel formats for major Indian banks: HDFC, ICICI, SBI, Axis, Kotak)
+- Match bank transactions with invoices
+- Match criteria: amount exact + date within 5 days + vendor name fuzzy
+- Unreconciled items highlighted
+- Frontend: Split view — bank transactions left, invoices right, match lines
+- Test: Upload HDFC statement → Verify matches → Check unreconciled
+
+**FEATURE 48: CA Marketplace**
+- Business-side: Search CAs by city, specialisation, fees
+- CA-side: Profile setup (specialisations, fee range, languages)
+- Lead system: Business contacts CA → CA pays lead fee
+- Review system after engagement
+- Frontend: Marketplace page (public, no login needed)
+- Test: Create CA profile → Search as business → Send inquiry → CA receives lead
+
+**FEATURE 49: White-Label Reseller**
+- Tenant type: RESELLER
+- Reseller can create sub-tenants (their client CAs)
+- Custom domain per reseller (DNS CNAME setup)
+- Custom logo + brand colors (theme config in DB)
+- Revenue share calculation dashboard
+- Test: Create reseller → Sub-tenant → Sub-tenant sees reseller branding
+
+**FEATURE 50: Progressive Web App (PWA)**
+- Service worker setup (Vite PWA plugin)
+- Offline mode: Cache approved invoices, client list
+- Offline upload queue: Store uploads locally → sync when online
+- Install prompt on mobile
+- Push notifications (web push API)
+- Test: Go offline → Upload invoice (queued) → Go online → Verify sync
+
+---
+
+### PHASE 10 — FINTECH BRIDGE (Year 2)
+
+**FEATURE 51: Invoice-Based Loan Assessment**
+- Analyse 12-month invoice history per client
+- Calculate: Revenue consistency score, GST compliance score, client diversity score
+- Generate loan eligibility report
+- NBFC referral integration (API)
+- CA earns ₹5,000-25,000 per successful referral
+- Frontend: "Check loan eligibility" button on client profile
+- Test: Enter 12 months data → Score calculated → Referral link generated
+
+**FEATURE 52: Working Capital Financing**
+- Invoice discounting: Submit approved invoice to NBFC
+- NBFC pays % of invoice value within 24hrs
+- Repayment tracking
+- CA gets commission per transaction
+- Test: Submit invoice → NBFC mock API responds → Track in app
+
+**FEATURE 53: CA Certification Tracker**
+- CPE (Continuing Professional Education) hours tracking
+- ICAI membership renewal reminder
+- Practising Certificate expiry alert
+- Certificate of Practice status
+- Frontend: CA profile section with all certifications and dates
+- Test: Enter cert dates → Alerts fire at correct times
+
+---
+
+### INFRASTRUCTURE & CROSS-CUTTING FEATURES (Build alongside above)
+
+**FEATURE 54: Error Handling + Logging**
+- Global exception handler (@ControllerAdvice)
+- Structured logging (Logback + JSON format)
+- Correlation ID per request (trace across services)
+- Error codes standardised (CA001, CA002 etc.)
+- Frontend: Error boundary component, user-friendly error messages
+
+**FEATURE 55: API Rate Limiting**
+- Bucket4j library for rate limiting
+- Per-tenant limits based on plan
+- Rate limit headers in response
+- Frontend: Handle 429 gracefully with retry logic
+
+**FEATURE 56: Email Notifications**
+- Spring Mail + AWS SES
+- Email templates (HTML) for:
+  - Welcome email
+  - Invoice extracted successfully
+  - Deadline reminder (CA)
+  - Deadline reminder (Client)
+  - Payment receipt
+  - Staff invitation
+- Test: Each email trigger → Verify delivery + formatting
+
+**FEATURE 57: Dashboard + Analytics**
+- CA home dashboard widgets:
+  - Today's deadlines
+  - Pending invoice approvals
+  - This month's GST summary
+  - Clients with overdue filings
+  - Recent activity feed
+- Charts (Recharts):
+  - Monthly invoice volume (bar)
+  - GST trend (line)
+  - Client-wise ITC utilisation (horizontal bar)
+- Test: Enter test data → Verify all widgets show correct numbers
+
+**FEATURE 58: Dark Mode**
+- Tailwind dark mode (class strategy)
+- Toggle in navbar (saves preference to localStorage)
+- All components support dark mode
+- Test: Toggle → All pages look correct in dark mode
+
+**FEATURE 59: Keyboard Shortcuts**
+- 'A' → Approve focused invoice
+- 'R' → Reject focused invoice
+- 'U' → Upload invoice
+- '/' → Focus search
+- 'Esc' → Close modal
+- Shortcuts help modal ('?')
+- Test: Each shortcut works from keyboard
+
+**FEATURE 60: Onboarding Tour**
+- React Joyride library
+- Step-by-step tour for new CA (first login)
+- Tour for each major section
+- "Skip tour" option
+- Progress saved (don't show again)
+- Test: New account → Tour starts → Skip → Doesn't show again
+
+---
+
+## IMPORTANT RULES FOR EVERY FEATURE
+
+1. **Complete code always** — never truncate. If file is long, split into parts but give ALL parts.
+2. **Test checklist at the end of every feature** — minimum 3 test cases, each with exact steps.
+3. **No "homework" for me** — don't say "you can add X yourself". Add it yourself.
+4. **Error handling is not optional** — every endpoint needs proper error handling.
+5. **Type safety always** — use TypeScript for React components, proper Java types (no raw Object).
+6. **Security always** — validate all inputs, sanitise all outputs, no SQL injection possible.
+7. **Name things clearly** — no abbreviations in variable names except standard ones (id, dto, etc.)
+8. **Comment why, not what** — only comment non-obvious business logic, not obvious code.
+
+---
+
+## HOW TO START
+
+Reply with exactly this when you're ready to begin:
+
+> "Ready. Starting FEATURE 1: Project Setup. 
+> Here is your complete Spring Boot + React project structure..."
+
+Then give me:
+1. Spring Initializr exact config (copy-paste ready)
+2. Complete folder structure (both backend + frontend)
+3. Docker Compose file for PostgreSQL
+4. .env.example files (backend + frontend)
+5. package.json with all frontend dependencies
+6. pom.xml with all backend dependencies
+7. README with exact commands to run both servers
+
+After I confirm Feature 1 works, you automatically proceed to Feature 2.
+
+**BEGIN NOW.**
